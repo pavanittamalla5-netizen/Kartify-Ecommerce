@@ -1,7 +1,7 @@
 
 import axios from "axios";
 
-const API_URL = "http://localhost:5000";
+const API_URL = "https://kartify-backend-bfvu.onrender.com";
 
 // CREATE RAZORPAY ORDER
 export const createRazorpayOrder = async (amount) => {
