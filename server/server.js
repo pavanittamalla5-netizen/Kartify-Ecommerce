@@ -7,32 +7,39 @@ require("dotenv").config();
 
 const app = express();
 
+// ALLOWED FRONTEND URLS
 const allowedOrigins = [
   "http://localhost:5173",
   process.env.FRONTEND_URL,
 ].filter(Boolean);
 
+// CORS CONFIGURATION
 app.use(
   cors({
     origin: (origin, callback) => {
       if (!origin || allowedOrigins.includes(origin)) {
-        callback(null, true);
-      } else {
-        callback(new Error("Not allowed by CORS"));
+        return callback(null, true);
       }
+
+      return callback(new Error("Not allowed by CORS"));
     },
   })
 );
 
 app.use(express.json());
 
+// RAZORPAY CONFIGURATION
 const razorpay = new Razorpay({
   key_id: process.env.RAZORPAY_KEY_ID,
   key_secret: process.env.RAZORPAY_KEY_SECRET,
 });
 
+// HEALTH CHECK
 app.get("/", (req, res) => {
-  res.send("Kartify Backend is Running!");
+  res.json({
+    success: true,
+    message: "Kartify Backend is Running!",
+  });
 });
 
 // CREATE RAZORPAY ORDER
@@ -40,7 +47,10 @@ app.post("/create-order", async (req, res) => {
   try {
     const { amount } = req.body;
 
-    if (!Number.isInteger(amount) || amount <= 0) {
+    if (
+      !Number.isInteger(amount) ||
+      amount <= 0
+    ) {
       return res.status(400).json({
         success: false,
         message: "Invalid payment amount",
@@ -48,27 +58,28 @@ app.post("/create-order", async (req, res) => {
     }
 
     const order = await razorpay.orders.create({
-      amount,
+      amount: amount,
       currency: "INR",
       receipt: "kartify_" + Date.now(),
     });
 
-    res.json({
+    return res.json({
       success: true,
-      order,
+      order: order,
       key: process.env.RAZORPAY_KEY_ID,
     });
+
   } catch (error) {
     console.error("Order Error:", error);
 
-    res.status(500).json({
+    return res.status(500).json({
       success: false,
-      message: "Unable to create payment order",
+      message: "Unable to create Razorpay order",
     });
   }
 });
 
-// VERIFY PAYMENT
+// VERIFY RAZORPAY PAYMENT
 app.post("/verify-payment", async (req, res) => {
   try {
     const {
@@ -77,6 +88,7 @@ app.post("/verify-payment", async (req, res) => {
       razorpay_signature,
     } = req.body;
 
+    // CHECK REQUIRED DETAILS
     if (
       !razorpay_order_id ||
       !razorpay_payment_id ||
@@ -88,11 +100,18 @@ app.post("/verify-payment", async (req, res) => {
       });
     }
 
+    // GENERATE SIGNATURE
     const generatedSignature = crypto
-      .createHmac("sha256", process.env.RAZORPAY_KEY_SECRET)
-      .update(razorpay_order_id + "|" + razorpay_payment_id)
+      .createHmac(
+        "sha256",
+        process.env.RAZORPAY_KEY_SECRET
+      )
+      .update(
+        razorpay_order_id + "|" + razorpay_payment_id
+      )
       .digest("hex");
 
+    // VERIFY SIGNATURE
     const valid =
       generatedSignature.length === razorpay_signature.length &&
       crypto.timingSafeEqual(
@@ -107,10 +126,12 @@ app.post("/verify-payment", async (req, res) => {
       });
     }
 
+    // FETCH PAYMENT DETAILS
     const payment = await razorpay.payments.fetch(
       razorpay_payment_id
     );
 
+    // CHECK ORDER MATCH
     if (payment.order_id !== razorpay_order_id) {
       return res.status(400).json({
         success: false,
@@ -118,14 +139,17 @@ app.post("/verify-payment", async (req, res) => {
       });
     }
 
+    // CHECK PAYMENT STATUS
     if (payment.status !== "captured") {
       return res.status(400).json({
         success: false,
         message: "Payment is not captured",
+        paymentStatus: payment.status,
       });
     }
 
-    res.json({
+    // RETURN ACTUAL PAYMENT METHOD
+    return res.json({
       success: true,
       message: "Payment verified successfully",
       paymentMethod: payment.method,
@@ -133,18 +157,22 @@ app.post("/verify-payment", async (req, res) => {
       paymentId: payment.id,
       orderId: payment.order_id,
     });
+
   } catch (error) {
     console.error("Verification Error:", error);
 
-    res.status(500).json({
+    return res.status(500).json({
       success: false,
       message: "Payment verification error",
     });
   }
 });
 
+// START SERVER
 const PORT = process.env.PORT || 5000;
 
 app.listen(PORT, () => {
-  console.log(`Kartify Backend running on port ${PORT}`);
+  console.log(
+    `Kartify Backend running on port ${PORT}`
+  );
 });
