@@ -7,9 +7,22 @@ require("dotenv").config();
 
 const app = express();
 
-app.use(cors({
-  origin: "http://localhost:5173",
-}));
+const allowedOrigins = [
+  "http://localhost:5173",
+  process.env.FRONTEND_URL,
+].filter(Boolean);
+
+app.use(
+  cors({
+    origin: (origin, callback) => {
+      if (!origin || allowedOrigins.includes(origin)) {
+        callback(null, true);
+      } else {
+        callback(new Error("Not allowed by CORS"));
+      }
+    },
+  })
+);
 
 app.use(express.json());
 
@@ -55,7 +68,7 @@ app.post("/create-order", async (req, res) => {
   }
 });
 
-// VERIFY PAYMENT AND GET ACTUAL PAYMENT METHOD
+// VERIFY PAYMENT
 app.post("/verify-payment", async (req, res) => {
   try {
     const {
@@ -75,7 +88,6 @@ app.post("/verify-payment", async (req, res) => {
       });
     }
 
-    // VERIFY PAYMENT SIGNATURE
     const generatedSignature = crypto
       .createHmac("sha256", process.env.RAZORPAY_KEY_SECRET)
       .update(razorpay_order_id + "|" + razorpay_payment_id)
@@ -95,12 +107,10 @@ app.post("/verify-payment", async (req, res) => {
       });
     }
 
-    // FETCH ACTUAL PAYMENT DETAILS FROM RAZORPAY
     const payment = await razorpay.payments.fetch(
       razorpay_payment_id
     );
 
-    // CHECK PAYMENT BELONGS TO THIS ORDER
     if (payment.order_id !== razorpay_order_id) {
       return res.status(400).json({
         success: false,
@@ -108,10 +118,10 @@ app.post("/verify-payment", async (req, res) => {
       });
     }
 
-    if (!["authorized", "captured"].includes(payment.status)) {
+    if (payment.status !== "captured") {
       return res.status(400).json({
         success: false,
-        message: "Payment is not successful",
+        message: "Payment is not captured",
       });
     }
 
@@ -123,7 +133,6 @@ app.post("/verify-payment", async (req, res) => {
       paymentId: payment.id,
       orderId: payment.order_id,
     });
-
   } catch (error) {
     console.error("Verification Error:", error);
 
@@ -134,7 +143,7 @@ app.post("/verify-payment", async (req, res) => {
   }
 });
 
-const PORT = 5000;
+const PORT = process.env.PORT || 5000;
 
 app.listen(PORT, () => {
   console.log(`Kartify Backend running on port ${PORT}`);
